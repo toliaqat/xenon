@@ -1,0 +1,30 @@
+---
+clone:
+  tags: true
+  path: github.com/toliaqat/xenon
+
+build:
+  perf:
+    image: vmware/maven-xenon:latest
+    pull: true
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    commands:
+      - export DRONE_COMMIT=master
+      - export BUILD_OPTS="-B -DskipTests=true -DskipGO=true -DskipAnalysis=true -pl xenon-common -am"
+      - git checkout $DRONE_COMMIT
+      - if [ "${UPDATE_FROM}" == "" ]; then UPDATE_FROM=$(git describe --abbrev=0); fi
+      - echo UPDATE_FROM=${UPDATE_FROM} >> $WORKSPACE/build.properties
+      - echo '*** Compiling release $UPDATE_FROM ***'
+      - git checkout $UPDATE_FROM
+      - mvn clean install $BUILD_OPTS
+      - echo '*** Preparing sandbox using released code $UPDATE_FROM ***'
+      - mvn test $BUILD_OPTS -Dtest=TestSandboxCompatibility#createSandbox -Dxenon.sandboxRoot=./sandbox-root
+      - echo '*** Compiling change $DRONE_COMMIT ***'
+      - git checkout $DRONE_COMMIT
+      - mvn clean install $BUILD_OPTS
+      - echo '*** Starting host with old sandbox and new code $GIT_COMMIT ***'
+      - mvn test $BUILD_OPTS -Dtest=TestSandboxCompatibility#resumeFromSandbox -Dxenon.sandboxRoot=./sandbox-root
+      - exit $?
+    when:
+      branch: master
