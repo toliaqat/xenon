@@ -31,6 +31,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
 import java.time.Duration;
 import java.time.Instant;
@@ -60,6 +61,7 @@ import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 import javax.net.ssl.SSLContext;
 import javax.xml.bind.DatatypeConverter;
 
@@ -1829,10 +1831,19 @@ public class VerificationHost extends ExampleServiceHost {
     }
 
     public VerificationHost setUpLocalPeerHost(int port, long maintIntervalMicros,
+                                               Collection<ServiceHost> hosts, String location)
+            throws Throwable {
+        return setUpLocalPeerHost(port, "host-" + hostNumber.incrementAndGet(), maintIntervalMicros, hosts, location);
+    }
+    public VerificationHost setUpLocalPeerHost(int port, String id, long maintIntervalMicros,
             Collection<ServiceHost> hosts, String location)
             throws Throwable {
 
-        VerificationHost h = VerificationHost.create(port);
+        ServiceHost.Arguments args = new ServiceHost.Arguments();
+        args.port = port;
+        args.id = "new" + id;
+        args.sandbox = null;
+        VerificationHost h = VerificationHost.create(args);
 
         h.setPeerSynchronizationEnabled(this.isPeerSynchronizationEnabled());
         h.setAuthorizationEnabled(this.isAuthorizationEnabled());
@@ -2386,6 +2397,7 @@ public class VerificationHost extends ExampleServiceHost {
 
             // build a service link to node map so we can tell on which node each service instance landed
             Map<String, Set<URI>> linkToNodeMap = new HashMap<>();
+            Map<String, String> linkToNodeId = new HashMap<>();
 
             boolean isConverged = true;
             for (Entry<URI, ServiceDocumentQueryResult> entry : childServicesPerNode.entrySet()) {
@@ -2494,6 +2506,29 @@ public class VerificationHost extends ExampleServiceHost {
                                 Utils.toJsonHtml(stateOnNode));
                         break;
                     }
+
+                    List<String> nodeIds = this.getInProcessHostMap().values().stream().map(host -> host.getId()).collect(Collectors.toList());
+                    if (!nodeIds.contains(stateOnNode.documentOwner)) {
+                        this.log("Node %s, Owner mismatch, state: %s, expected owners: %s", childLinksAndDocsPerHost.documentOwner,
+                                Utils.toJsonHtml(stateOnNode), String.join(", ", nodeIds));
+                        break;
+                        //throw new TimeoutException();
+                    }
+
+                    if (linkToNodeId.containsKey(stateOnNode.documentSelfLink)){
+                        if (!linkToNodeId.get(stateOnNode.documentSelfLink).equals(stateOnNode.documentOwner)) {
+                            this.log("Owner mismatch on peers, id:%s state: %s",
+                                    childLinksAndDocsPerHost.documentOwner, Utils.toJsonHtml(stateOnNode));
+                            break;
+                        } else {
+                            this.log("Node %s, Owner match on peers, state: %s : owner: %s", childLinksAndDocsPerHost.documentOwner,stateOnNode.documentSelfLink, stateOnNode.documentOwner);
+                        }
+                    } else {
+                        linkToNodeId.put(stateOnNode.documentSelfLink, stateOnNode.documentOwner);
+                        this.log("Node %s, Owner match on peers, state: %s : owner: %s", childLinksAndDocsPerHost.documentOwner, stateOnNode.documentSelfLink, stateOnNode.documentOwner);
+                    }
+
+                    // stateOnNode.documentOwner
 
                     // Do not check exampleState.counter, in this validation loop.
                     // We can not compare the counter since the replication test sends the updates

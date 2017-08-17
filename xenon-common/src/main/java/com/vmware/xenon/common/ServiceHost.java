@@ -352,7 +352,7 @@ public class ServiceHost implements ServiceRequestSender {
 
     static final Path DEFAULT_TMPDIR = Paths.get(System.getProperty("java.io.tmpdir"));
     static final Path DEFAULT_SANDBOX = DEFAULT_TMPDIR.resolve("xenon");
-    static final Path DEFAULT_RESOURCE_SANDBOX_DIR = Paths.get("resources");
+    public static final Path DEFAULT_RESOURCE_SANDBOX_DIR = Paths.get("resources");
     private static final String DEFAULT_AUTO_BACKUP_DIR = "auto-backup";
 
     /**
@@ -5365,6 +5365,14 @@ public class ServiceHost implements ServiceRequestSender {
         // (re-)synchronization after a node group change), don't update the documentAuthPrincipalLink because
         // it will be set to the system user. The specified state is expected to have the documentAuthPrincipalLink
         // set from when it was first saved.
+
+        if (op.getUri().getPath().contains("/core/examples")) {
+
+            this.log(Level.INFO, "test validateOwnerSelectedUpdate se");
+            //return false;
+
+        }
+
         if (!op.isFromReplication()) {
             state.documentAuthPrincipalLink = (op.getAuthorizationContext() != null)
                     ? op.getAuthorizationContext().getClaims().getSubject() : null;

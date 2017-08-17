@@ -14,13 +14,12 @@
 package com.vmware.xenon.common;
 
 import static java.util.stream.Collectors.toList;
+import static org.junit.Assert.*;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
+import java.io.File;
 import java.net.URI;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -31,6 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 import org.junit.After;
@@ -101,6 +101,8 @@ public class TestSynchronizationTaskService extends BasicTestCase {
 
     @BeforeClass
     public static void setUpClass() throws Exception {
+        System.setProperty(Utils.PROPERTY_NAME_PREFIX
+                + "ServiceHost.APPEND_PORT_TO_SANDBOX", "false");
         System.setProperty(
                 SynchronizationTaskService.PROPERTY_NAME_SYNCHRONIZATION_LOGGING, "true");
     }
@@ -124,6 +126,8 @@ public class TestSynchronizationTaskService extends BasicTestCase {
 
     @Before
     public void setUp() {
+        System.setProperty(Utils.PROPERTY_NAME_PREFIX
+                + "ServiceHost.APPEND_PORT_TO_SANDBOX", "false");
         CommandLineArgumentParser.parseFromProperties(this);
         URI exampleFactoryUri = UriUtils.buildUri(
                 this.host.getUri(), ExampleService.FACTORY_LINK);
@@ -341,8 +345,13 @@ public class TestSynchronizationTaskService extends BasicTestCase {
         synchAfterOwnerRestartDo(ExampleODLService.FACTORY_LINK);
     }
 
-    public ExampleServiceState  synchAfterOwnerRestartDo(
+    public void  synchAfterOwnerRestartDo(
             String factoryLink) throws Throwable {
+        System.setProperty(Utils.PROPERTY_NAME_PREFIX
+                + "ServiceHost.APPEND_PORT_TO_SANDBOX", "false");
+
+        this.host.setTimeoutSeconds(100000);
+
         TestRequestSender sender = new TestRequestSender(this.host);
         this.host.setNodeGroupQuorum(this.nodeCount - 1);
         this.host.waitForNodeGroupConvergence();
@@ -355,10 +364,75 @@ public class TestSynchronizationTaskService extends BasicTestCase {
 
         ExampleServiceState state = exampleStatesMap.entrySet().iterator().next().getValue();
 
+        this.host.waitForReplicatedFactoryChildServiceConvergence(
+                this.host.getNodeGroupToFactoryMap(factoryLink),
+                exampleStatesMap,
+                this.exampleStateConvergenceChecker,
+                exampleStatesMap.size(),
+                0, this.nodeCount);
+
+        List<VerificationHost> hosts = new ArrayList<>();
+
+        for (Map.Entry<URI, VerificationHost> entry : this.host.getInProcessHostMap().entrySet()) {
+            try {
+                VerificationHost host = entry.getValue();
+                this.host.log(Level.INFO, "Old host Id:%s Port:%d, sandbox:%s", host.getId(), host.getPort(), host.getStorageSandbox());
+                this.host.stopHostAndPreserveState(host);
+                hosts.add(host);
+
+
+            } catch (Throwable e) {
+                throw new Throwable(e);
+            }
+        }
+
+        hosts.stream()
+                .forEach(host -> {
+                    try {
+                        ServiceHost.Arguments args = new ServiceHost.Arguments();
+                        args.port = host.getPort();
+                        args.id = "id-" + host.getPort() + host.getId();
+                        args.sandbox = Paths.get(host.getStorageSandbox());
+                        VerificationHost newHost = VerificationHost.create(args);
+                        newHost.start();
+                        this.host.addPeerNode(newHost);
+
+                        this.host.log(Level.INFO, "New host Id:%s Port:%d, sandbox:%s", newHost.getId(), newHost.getPort(), newHost.getStorageSandbox());
+                    } catch (Throwable e) {
+                        fail();
+                    }
+                });
+
+        this.host.joinNodesAndVerifyConvergence(this.nodeCount);
+        this.host.waitForNodeGroupConvergence(this.nodeCount, this.nodeCount);
+
+        this.host.waitForReplicatedFactoryChildServiceConvergence(
+                this.host.getNodeGroupToFactoryMap(factoryLink),
+                exampleStatesMap,
+                this.exampleStateConvergenceChecker,
+                exampleStatesMap.size(),
+                0, this.nodeCount);
+
         // Find out which is the the owner node and restart it
-        VerificationHost owner = this.host.getInProcessHostMap().values().stream()
-                .filter(host -> host.getId().contentEquals(state.documentOwner)).findFirst()
-                .orElseThrow(() -> new RuntimeException("couldn't find owner node"));
+        VerificationHost nodeToStop = this.host.getPeerHost();
+
+        this.host.stopHost(nodeToStop);
+
+        //ServiceHost.Arguments args = new ServiceHost.Arguments();
+        //args.port = nodeToStop.getPort();
+        //args.id = "new-new-" + host.getId();
+        //VerificationHost newHost = VerificationHost.create(args);
+        //newHost.start();
+        //this.host.addPeerNode(newHost);
+
+        this.host.testStart(1);
+        VerificationHost newHost = this.host.setUpLocalPeerHost(nodeToStop.getPort(), "id-"+ nodeToStop.getPort(),
+                VerificationHost.FAST_MAINT_INTERVAL_MILLIS, null, null);
+        this.host.testWait();
+
+        this.host.joinNodesAndVerifyConvergence(this.nodeCount);
+        this.host.waitForNodeGroupConvergence(this.nodeCount, this.nodeCount);
+
 
         this.host.waitForReplicatedFactoryChildServiceConvergence(
                 this.host.getNodeGroupToFactoryMap(factoryLink),
@@ -367,21 +441,14 @@ public class TestSynchronizationTaskService extends BasicTestCase {
                 exampleStatesMap.size(),
                 0, this.nodeCount);
 
-        restartHost(owner);
-
-        this.host.waitForReplicatedFactoryChildServiceConvergence(
-                this.host.getNodeGroupToFactoryMap(factoryLink),
-                exampleStatesMap,
-                this.exampleStateConvergenceChecker,
-                exampleStatesMap.size(),
-                0, this.nodeCount);
+        Thread.sleep(1000000);
 
         // Verify that state was synced with restarted node.
-        Operation op = Operation.createGet(owner, state.documentSelfLink);
-        ExampleServiceState newState = sender.sendAndWait(op, ExampleServiceState.class);
+        Operation op = Operation.createGet(this.host.getPeerHost(), ServiceUriPaths.CORE_DOCUMENT_INDEX + "?documentSelfLink=" + state.documentSelfLink);
+        //op = sender.sendAndWait(op);
 
-        assertNotNull(newState);
-        return newState;
+        ExampleServiceState newState = sender.sendAndWait(op, ExampleServiceState.class);
+        this.host.log(Level.INFO, "   %s", Utils.toJsonHtml(newState));
     }
 
     @Test
@@ -462,22 +529,22 @@ public class TestSynchronizationTaskService extends BasicTestCase {
 
     private VerificationHost restartHost(VerificationHost hostToRestart) throws Throwable {
         this.host.stopHostAndPreserveState(hostToRestart);
-        this.host.waitForNodeGroupConvergence(this.nodeCount - 1, this.nodeCount - 1);
+        // this.host.waitForNodeGroupConvergence(this.nodeCount - 1, this.nodeCount - 1);
 
         hostToRestart.setPort(0);
         VerificationHost.restartStatefulHost(hostToRestart, false);
 
         // Start in-memory index service, and in-memory example factory.
-        hostToRestart.addPrivilegedService(InMemoryLuceneDocumentIndexService.class);
-        hostToRestart.startFactory(InMemoryExampleService.class, InMemoryExampleService::createFactory);
-        hostToRestart.startServiceAndWait(InMemoryLuceneDocumentIndexService.class,
-                InMemoryLuceneDocumentIndexService.SELF_LINK);
+//        hostToRestart.addPrivilegedService(InMemoryLuceneDocumentIndexService.class);
+//        hostToRestart.startFactory(InMemoryExampleService.class, InMemoryExampleService::createFactory);
+//        hostToRestart.startServiceAndWait(InMemoryLuceneDocumentIndexService.class,
+//                InMemoryLuceneDocumentIndexService.SELF_LINK);
+//
+//        hostToRestart.addPrivilegedService(ExampleODLService.class);
+//        hostToRestart.startFactory(ExampleODLService.class, ExampleODLService::createFactory);
 
-        hostToRestart.addPrivilegedService(ExampleODLService.class);
-        hostToRestart.startFactory(ExampleODLService.class, ExampleODLService::createFactory);
-
-        this.host.addPeerNode(hostToRestart);
-        this.host.joinNodesAndVerifyConvergence(this.nodeCount);
+        //this.host.addPeerNode(hostToRestart);
+        //this.host.joinNodesAndVerifyConvergence(this.nodeCount);
         return hostToRestart;
     }
 

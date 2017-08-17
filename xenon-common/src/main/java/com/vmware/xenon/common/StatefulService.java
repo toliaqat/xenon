@@ -404,7 +404,9 @@ public class StatefulService implements Service {
             }
 
             if (opProcessingStage == OperationProcessingStage.PROCESSING_FILTERS) {
-                if (!request.hasPragmaDirective(Operation.PRAGMA_DIRECTIVE_NO_FORWARDING) &&
+
+                if (
+                        !request.hasPragmaDirective(Operation.PRAGMA_DIRECTIVE_NO_FORWARDING) &&
                         validateOwnerSelectedUpdate(request)) {
                     return;
                 }
@@ -530,6 +532,34 @@ public class StatefulService implements Service {
     }
 
     private boolean validateOwnerSelectedUpdate(Operation request) {
+
+
+        if (request.getUri().getPath().contains("/core/examples") &&
+                (request.hasPragmaDirective(Operation.PRAGMA_DIRECTIVE_FORWARDED))) {
+
+            this.getHost().log(Level.INFO, "all validateOwnerSelectedUpdate service: %s, node: %s, options:%s, pragma:%s, referer:%s",
+                    request.getUri().getPath(), this.getHost().getId(),
+                    request.getOptions(), request.getRequestHeaderAsIs(Operation.PRAGMA_HEADER),
+                    request.getReferer().getPort());
+            //return false;
+
+        }
+
+        if (request.getAction() == Action.GET) {
+            if (request.getUri().getPath().contains("/core/examples") &&
+                    (request.hasPragmaDirective(Operation.PRAGMA_DIRECTIVE_FORWARDED))) {
+                if (hasOption(ServiceOption.OWNER_SELECTION)) {
+                    if (!hasOption(ServiceOption.DOCUMENT_OWNER)) {
+                        this.getHost().log(Level.INFO, "validateOwnerSelectedUpdate service: %s, node: %s, options:%s, pragma:%s, referer:%s",
+                                request.getUri().getPath(), this.getHost().getId(),
+                                request.getOptions(), request.getRequestHeaderAsIs(Operation.PRAGMA_HEADER),
+                                request.getReferer().getPort());
+                        //return false;
+                    }
+                }
+            }
+        }
+
         if (hasOption(ServiceOption.CONCURRENT_UPDATE_HANDLING)) {
             return false;
         }
@@ -544,9 +574,13 @@ public class StatefulService implements Service {
 
             if (hasOption(ServiceOption.OWNER_SELECTION)) {
                 if (!hasOption(ServiceOption.DOCUMENT_OWNER)) {
-                    synchronizeWithPeers(request, new IllegalStateException(
-                            "not marked as owner"));
-                    return true;
+                    return false;
+                    //synchronizeWithPeers(request, new IllegalStateException(String.format(
+                    //        "not marked as owner validateOwnerSelectedUpdate service: %s, node: %s, options:%s, pragma:%s, referer:%s",
+                    //request.getUri().getPath(), this.getHost().getId(),
+                    //        request.getOptions(), request.getRequestHeaderAsIs(Operation.PRAGMA_HEADER),
+                    //        request.getReferer().getPort())));
+                    //return true;
                 } else {
                     return false;
                 }

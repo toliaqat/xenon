@@ -324,6 +324,8 @@ class ServiceSynchronizationTracker {
             // set version to negative so we do not select this over peer state
             template.documentVersion = -1;
             t.state = template;
+        } else {
+            this.host.log(Level.INFO, "tracker owner %s, service: %s", t.state.documentOwner, t.state.documentSelfLink);
         }
 
         // We remove the SYNCH_OWNER pragma from the operation here.
@@ -550,8 +552,8 @@ class ServiceSynchronizationTracker {
 
             if (this.synchronizationActiveServices.get(link) != null) {
                 // service actively synchronizing, do not re-schedule
-                this.host.log(Level.WARNING, "Skipping synch for service %s, already in progress",
-                        link);
+                this.host.log(Level.WARNING, "Skipping synch for service %s, already in progress on host:id %s",
+                        link, this.host.getId());
                 // service can cancel a pending synchronization if it detects node group has
                 // changed since it started synchronization for the current epoch
                 continue;

@@ -345,8 +345,8 @@ public class NodeSelectorSynchronizationService extends StatelessService {
             };
 
             if (incrementEpoch) {
-                logInfo("Incrementing epoch from %d to %d for %s", bestPeerRsp.documentEpoch,
-                        bestPeerRsp.documentEpoch + 1, bestPeerRsp.documentSelfLink);
+                logInfo("Incrementing epoch from %d to %d for %s, owner: %s", bestPeerRsp.documentEpoch,
+                        bestPeerRsp.documentEpoch + 1, bestPeerRsp.documentSelfLink, bestPeerRsp.documentOwner);
                 bestPeerRsp.documentEpoch += 1;
                 bestPeerRsp.documentVersion++;
             }

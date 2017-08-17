@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.logging.Level;
 
 import com.vmware.xenon.common.ServiceDocumentDescription.PropertyUsageOption;
 import com.vmware.xenon.services.common.NodeGroupService;
@@ -755,6 +756,8 @@ public class SynchronizationTaskService
                         sendSelfCancellationPatch(task, "Local node is no longer owner for this factory.");
                         return;
                     }
+
+                    this.log(Level.INFO, "Factory Synch Owner: %s", this.getHost().getId());
 
                     // Recursively call handleSynchronizeStage
                     // without owner verification.
